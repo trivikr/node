@@ -9,10 +9,10 @@ const server = h2.createServer();
 
 // we use the lower-level API here
 server.on('stream', common.mustCall((stream) => {
-  stream.setTimeout(1, common.mustCall(() => {
+  /*stream.setTimeout(1, common.mustCall(() => {
     stream.respond({ ':status': 200 });
-    stream.end('hello world');
-  }));
+    //stream.end('hello world');
+  }));*/
 
   // check that expected errors are thrown with wrong args
   common.expectsError(
@@ -40,6 +40,10 @@ server.on('stream', common.mustCall((stream) => {
       message: 'Callback must be a function'
     }
   );
+  stream.setTimeout(0, common.mustCall(() => {
+    stream.respond({ ':status': 200 });
+    stream.end('hello world');
+  }));
 }));
 server.listen(0);
 
