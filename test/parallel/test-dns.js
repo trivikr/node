@@ -314,3 +314,9 @@ common.expectsError(() => {
   code: 'ERR_INVALID_CALLBACK',
   type: TypeError
 });
+
+const lookupServicePromise = dnsPromises.lookupService('127.0.0.1', '65535');
+lookupServicePromise.then((data) => {
+  assert.strictEqual(data.hostname, 'localhost');
+  assert.strictEqual(data.service, '65535');
+});
