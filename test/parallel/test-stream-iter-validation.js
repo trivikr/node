@@ -146,6 +146,8 @@ assert.throws(() => broadcast({ highWaterMark: Number.MAX_SAFE_INTEGER + 1 }),
 
 assert.throws(() => broadcast({ signal: {} }), { code: 'ERR_INVALID_ARG_TYPE' });
 assert.throws(() => broadcast({ backpressure: 'bad' }), { code: 'ERR_INVALID_ARG_VALUE' });
+assert.throws(() => broadcast().broadcast.push({ signal: {} }),
+              { code: 'ERR_INVALID_ARG_TYPE' });
 
 // Broadcast.from rejects non-iterable input
 assert.throws(() => Broadcast.from(42), { code: 'ERR_INVALID_ARG_TYPE' });
@@ -162,6 +164,8 @@ assert.throws(() => share(from('a'), { highWaterMark: Number.MAX_SAFE_INTEGER + 
               { code: 'ERR_OUT_OF_RANGE' });
 assert.throws(() => share(from('a'), { signal: {} }), { code: 'ERR_INVALID_ARG_TYPE' });
 assert.throws(() => share(from('a'), { backpressure: 'bad' }), { code: 'ERR_INVALID_ARG_VALUE' });
+assert.throws(() => share(from('a')).pull({ signal: {} }),
+              { code: 'ERR_INVALID_ARG_TYPE' });
 
 // share() values < 1 are clamped (no desiredSize, but accepts the value)
 share(from('a'), { highWaterMark: 0 }).cancel();

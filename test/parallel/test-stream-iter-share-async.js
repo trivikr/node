@@ -265,6 +265,24 @@ async function testShareStringSource() {
   assert.strictEqual(result, 'hello-share');
 }
 
+async function testShareConsumerAbortSignal() {
+  const ac = new AbortController();
+  async function* never() {
+    await new Promise(() => {});
+    yield [];
+  }
+  const shared = share(never());
+  const consumer = shared.pull({ signal: ac.signal });
+  const iterator = consumer[Symbol.asyncIterator]();
+  const next = iterator.next();
+
+  assert.strictEqual(shared.consumerCount, 1);
+  ac.abort(new Error('consumer aborted'));
+
+  await assert.rejects(next, { message: 'consumer aborted' });
+  assert.strictEqual(shared.consumerCount, 0);
+}
+
 Promise.all([
   testBasicShare(),
   testShareMultipleConsumers(),
@@ -279,4 +297,5 @@ Promise.all([
   testShareConsumerBreak(),
   testShareMultipleConsumersConcurrentPull(),
   testShareStringSource(),
+  testShareConsumerAbortSignal(),
 ]).then(common.mustCall());

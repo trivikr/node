@@ -243,6 +243,20 @@ async function testLateJoinerSeesBufferedData() {
   assert.strictEqual(result, 'before-join');
 }
 
+async function testConsumerAbortSignal() {
+  const ac = new AbortController();
+  const { broadcast: bc } = broadcast();
+  const consumer = bc.push({ signal: ac.signal });
+  const iterator = consumer[Symbol.asyncIterator]();
+  const next = iterator.next();
+
+  assert.strictEqual(bc.consumerCount, 1);
+  ac.abort(new Error('consumer aborted'));
+
+  await assert.rejects(next, { message: 'consumer aborted' });
+  assert.strictEqual(bc.consumerCount, 0);
+}
+
 Promise.all([
   testBasicBroadcast(),
   testMultipleWrites(),
@@ -257,4 +271,5 @@ Promise.all([
   testFailDetachesConsumers(),
   testWriterFailIdempotent(),
   testLateJoinerSeesBufferedData(),
+  testConsumerAbortSignal(),
 ]).then(common.mustCall());
