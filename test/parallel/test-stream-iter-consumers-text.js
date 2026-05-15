@@ -116,6 +116,61 @@ async function testTextMultiChunkSplitCodepoint() {
   assert.strictEqual(result, '€');
 }
 
+function testTextSyncMultiChunkSplitCodepoint() {
+  function* splitSource() {
+    yield [new Uint8Array([0xE2, 0x82])];
+    yield [new Uint8Array([0xAC])];
+  }
+  const result = textSync(splitSource());
+  assert.strictEqual(result, '€');
+}
+
+async function testTextIncompleteFinalCodepoint() {
+  async function* incompleteSource() {
+    yield [new Uint8Array([0xE2, 0x82])];
+  }
+
+  await assert.rejects(
+    () => text(incompleteSource()),
+    { name: 'TypeError' },
+  );
+}
+
+function testTextSyncIncompleteFinalCodepoint() {
+  function* incompleteSource() {
+    yield [new Uint8Array([0xE2, 0x82])];
+  }
+
+  assert.throws(
+    () => textSync(incompleteSource()),
+    { name: 'TypeError' },
+  );
+}
+
+async function testTextLimitPrecedesDecodeError() {
+  async function* invalidThenTooLargeSource() {
+    yield [new Uint8Array([0xFF])];
+    yield [new Uint8Array([0x61, 0x62])];
+  }
+
+  await assert.rejects(
+    () => text(invalidThenTooLargeSource(), { limit: 1 }),
+    { code: 'ERR_OUT_OF_RANGE' },
+  );
+}
+
+function testTextSyncLimitPrecedesDecodeError() {
+  function* invalidThenTooLargeSource() {
+    yield [new Uint8Array([0xFF])];
+    yield [new Uint8Array([0x61, 0x62])];
+  }
+
+  assert.throws(
+    () => textSync(invalidThenTooLargeSource(), { limit: 1 }),
+    { code: 'ERR_OUT_OF_RANGE' },
+  );
+}
+
 // BOM should be stripped (ignoreBOM defaults to false per spec)
 async function testTextBOMStripped() {
   // UTF-8 BOM: 0xEF, 0xBB, 0xBF followed by 'hi'
@@ -157,6 +212,11 @@ Promise.all([
   testTextEmpty(),
   testTextWithSignal(),
   testTextMultiChunkSplitCodepoint(),
+  testTextSyncMultiChunkSplitCodepoint(),
+  testTextIncompleteFinalCodepoint(),
+  testTextSyncIncompleteFinalCodepoint(),
+  testTextLimitPrecedesDecodeError(),
+  testTextSyncLimitPrecedesDecodeError(),
   testTextBOMStripped(),
   testTextSyncBOMStripped(),
   testTextUnsupportedEncodingThrowsRangeError(),
