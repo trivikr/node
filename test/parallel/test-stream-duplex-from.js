@@ -418,3 +418,44 @@ function makeATestWritableStream(writeFunc) {
   }));
   r.destroy(expectedErr);
 }
+
+// Avoid buffering readable data both in the wrapper Duplex and the underlying
+// readable stream.
+{
+  const chunks = Array.from({ length: 10 }, (_, n) => n);
+  const r = new Readable({
+    objectMode: true,
+    read() {
+      while (chunks.length > 0) {
+        this.push(chunks.shift());
+      }
+      this.push(null);
+    },
+  });
+  const d = Duplex.from({ readable: r });
+
+  d.read(0);
+  assert.strictEqual(d.readableHighWaterMark, 0);
+  assert.strictEqual(d.readableLength, 1);
+
+  d.resume();
+}
+
+// Write-side backpressure should be reported by the wrapper as soon as the
+// underlying writable reports it.
+{
+  const pending = [];
+  const w = new Writable({
+    highWaterMark: 1,
+    write(chunk, encoding, callback) {
+      pending.push(callback);
+    },
+  });
+  const d = Duplex.from({ writable: w });
+
+  assert.strictEqual(d.writableHighWaterMark, 0);
+  assert.strictEqual(d.write(Buffer.alloc(2), common.mustCall()), false);
+  process.nextTick(() => pending.shift()());
+  d.end();
+  d.on('finish', common.mustCall());
+}

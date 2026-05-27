@@ -537,3 +537,27 @@ const assert = require('assert');
   assert.strictEqual(duplex.destroyed, true);
 
 }
+
+// Write-side backpressure should be reported by the composed wrapper as soon as
+// the underlying head stream reports it.
+{
+  const pending = [];
+  const head = new Transform({
+    writableHighWaterMark: 1,
+    transform(chunk, encoding, callback) {
+      pending.push(callback);
+    },
+  });
+  const tail = new Writable({
+    write(chunk, encoding, callback) {
+      callback();
+    },
+  });
+  const composed = compose(head, tail);
+
+  assert.strictEqual(composed.writableHighWaterMark, 0);
+  assert.strictEqual(composed.write(Buffer.alloc(2), common.mustCall()), false);
+  process.nextTick(() => pending.shift()(null, Buffer.alloc(2)));
+  composed.end();
+  composed.on('finish', common.mustCall());
+}
