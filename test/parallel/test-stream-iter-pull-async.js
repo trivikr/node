@@ -1,9 +1,12 @@
-// Flags: --experimental-stream-iter
+// Flags: --experimental-stream-iter --expose-internals
 'use strict';
 
 const common = require('../common');
 const assert = require('assert');
 const { pull, from, text, tap } = require('stream/iter');
+const {
+  kReusableTransformOptions,
+} = require('internal/streams/iter/types');
 
 async function testPullIdentity() {
   const data = await text(pull(from('hello-async')));
@@ -349,6 +352,36 @@ async function testTransformOptionsNotShared() {
   assert.strictEqual(seen[1].mutated, undefined);
 }
 
+async function testReusableTransformOptions() {
+  const reusableOptions = [];
+  const regularOptions = [];
+  const reusable = (chunks, options) => {
+    reusableOptions.push(options);
+    assert(Object.isFrozen(options));
+    return chunks;
+  };
+  reusable[kReusableTransformOptions] = true;
+
+  const regular = (chunks, options) => {
+    regularOptions.push(options);
+    assert(!Object.isFrozen(options));
+    return chunks;
+  };
+
+  await text(pull(from(['a', 'b']), reusable, regular, reusable));
+
+  assert(reusableOptions.length > 1);
+  for (let i = 1; i < reusableOptions.length; i++) {
+    assert.strictEqual(reusableOptions[i], reusableOptions[0]);
+  }
+  for (let i = 0; i < regularOptions.length; i++) {
+    assert.notStrictEqual(regularOptions[i], reusableOptions[0]);
+    for (let j = i + 1; j < regularOptions.length; j++) {
+      assert.notStrictEqual(regularOptions[i], regularOptions[j]);
+    }
+  }
+}
+
 // Run the uncaughtException test sequentially (it installs a global handler
 // that would interfere with concurrent tests).
 (async () => {
@@ -376,6 +409,7 @@ async function testTransformOptionsNotShared() {
     testTransformReturnsArrayBuffer(),
     testPipeToStringSource(),
     testTransformOptionsNotShared(),
+    testReusableTransformOptions(),
   ]);
   // Run after all concurrent tests complete to avoid global handler races
   await testTransformSignalListenerErrorOnSourceError();
