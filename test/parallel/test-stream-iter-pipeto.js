@@ -292,6 +292,44 @@ async function testPipeToSyncIterableFastPathAsyncValue() {
   assert.strictEqual(result, 'ab');
 }
 
+async function testPipeToSyncIterableFastPathNestedValueBounded() {
+  let pulled = 0;
+  let firstWritePulled = 0;
+  const batches = [];
+  const writes = [];
+  const writer = {
+    write: common.mustNotCall(),
+    writeSync(chunk) {
+      writes.push(chunk);
+      return true;
+    },
+    writev: common.mustNotCall(),
+    writevSync(chunks) {
+      if (firstWritePulled === 0) {
+        firstWritePulled = pulled;
+      }
+      batches.push(chunks);
+      return true;
+    },
+  };
+  function* nested() {
+    for (let i = 0; i < 129; i++) {
+      pulled++;
+      yield new Uint8Array([i]);
+    }
+  }
+  function* source() {
+    yield nested();
+  }
+
+  const totalBytes = await pipeTo(source(), writer);
+  assert.strictEqual(totalBytes, 129);
+  assert.strictEqual(firstWritePulled, 128);
+  assert.strictEqual(batches.length, 1);
+  assert.strictEqual(batches[0].length, 128);
+  assert.deepStrictEqual(writes, [new Uint8Array([128])]);
+}
+
 Promise.all([
   testPipeToSync(),
   testPipeTo(),
@@ -310,4 +348,5 @@ Promise.all([
   testPipeToSyncIterableFastPathWritesIncrementally(),
   testPipeToSyncIterableFastPathWriteFallback(),
   testPipeToSyncIterableFastPathAsyncValue(),
+  testPipeToSyncIterableFastPathNestedValueBounded(),
 ]).then(common.mustCall());
