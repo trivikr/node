@@ -36,6 +36,7 @@ function createAgent(domain, calls, gates) {
   agent.setBlackboxPatterns = method('setBlackboxPatterns');
   agent.setPauseOnExceptions = method('setPauseOnExceptions');
   agent.runIfWaitingForDebugger = method('runIfWaitingForDebugger');
+  agent.getScriptSource = async () => ({ scriptSource: "'use strict';\n" });
   return agent;
 }
 
@@ -114,6 +115,71 @@ async function assertCommandWaitsForInit(repl, command, gate, calls) {
       'Runtime.runIfWaitingForDebugger',
     ],
   );
+
+  repl.close();
+})().then(common.mustCall());
+
+(async () => {
+  const calls = [];
+  const pauseGate = createGate();
+  const inspector = {
+    options: { script: 'three-lines.js' },
+    client: new EventEmitter(),
+    domainNames: ['Debugger', 'HeapProfiler', 'Profiler', 'Runtime'],
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    run: common.mustNotCall(),
+    print(value, addNewline = true) {
+      this.stdout.write(addNewline ? `${value}\n` : value);
+    },
+    async suspendReplWhile(fn) {
+      calls.push('suspendReplWhile');
+      await fn();
+      await pauseGate.promise;
+    },
+  };
+
+  for (const domain of inspector.domainNames) {
+    inspector[domain] = createAgent(domain, calls, [null]);
+  }
+
+  let settled = false;
+  const replPromise = createRepl(inspector)().then((repl) => {
+    settled = true;
+    return repl;
+  });
+
+  await new Promise(setImmediate);
+  assert.strictEqual(
+    settled,
+    false,
+    'startRepl resolved before receiving the initial pause',
+  );
+
+  inspector.Debugger.emit('scriptParsed', {
+    scriptId: '1',
+    url: '/tmp/three-lines.js',
+  });
+  inspector.Debugger.emit('paused', {
+    reason: 'Break on start',
+    callFrames: [{
+      functionName: '',
+      location: { scriptId: '1', lineNumber: 0, columnNumber: 0 },
+      scopeChain: [],
+    }],
+  });
+
+  await new Promise(setImmediate);
+  assert.strictEqual(
+    settled,
+    false,
+    'startRepl resolved before the initial pause was handled',
+  );
+
+  pauseGate.resolve();
+  const repl = await replPromise;
+  assert.strictEqual(settled, true);
+  assert.match(inspector.stdout.read().toString(), /Break on start in/);
 
   repl.close();
 })().then(common.mustCall());
