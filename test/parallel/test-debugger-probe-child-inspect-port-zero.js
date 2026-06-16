@@ -14,6 +14,7 @@ const probeUrl = fixtures.fileURL('debugger', 'probe.js').href;
 spawnSyncAndAssert(process.execPath, [
   'inspect',
   '--json',
+  '--timeout', '5000',
   '--probe', 'probe.js:12',
   '--expr', 'finalValue',
   '--',
