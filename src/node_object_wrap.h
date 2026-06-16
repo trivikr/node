@@ -36,12 +36,15 @@ class NODE_DEPRECATED(
  public:
   ObjectWrap() {
     refs_ = 0;
+    cleanup_hook_removed_ = false;
     AddCleanupHook();
   }
 
 
   virtual ~ObjectWrap() {
-    RemoveCleanupHook();
+    if (!cleanup_hook_removed_) {
+      RemoveCleanupHook();
+    }
     if (persistent().IsEmpty())
       return;
     persistent().ClearWeak();
@@ -136,13 +139,19 @@ class NODE_DEPRECATED(
   }
 
   void RemoveCleanupHook() {
+    cleanup_hook_removed_ = true;
     RemoveEnvironmentCleanupHook(v8::Isolate::GetCurrent(), CleanupHook, this);
   }
 
-  static void CleanupHook(void* arg) { delete static_cast<ObjectWrap*>(arg); }
+  static void CleanupHook(void* arg) {
+    ObjectWrap* wrap = static_cast<ObjectWrap*>(arg);
+    wrap->cleanup_hook_removed_ = true;
+    delete wrap;
+  }
 
   // NOLINTNEXTLINE(runtime/v8_persistent)
   v8::Persistent<v8::Object> handle_;
+  bool cleanup_hook_removed_;
 };
 
 }  // namespace node
