@@ -6,6 +6,7 @@ const BREAK_MESSAGE = new RegExp('(?:' + [
   'assert', 'break', 'break on start', 'debugCommand',
   'exception', 'other', 'promiseRejection', 'step',
 ].join('|') + ') in', 'i');
+const NOT_PAUSED_MESSAGE = /requires execution to be paused/i;
 
 let TIMEOUT = common.platformTimeout(10000);
 // Some macOS and Windows machines require more time to receive the outputs from the client.
@@ -56,7 +57,7 @@ function startCLI(args, flags = [], spawnOpts = {}, opts = { randomPort: true })
       return output;
     },
 
-    waitFor(pattern) {
+    waitFor(pattern, offset = 0, timeout = TIMEOUT) {
       function checkPattern(str) {
         if (Array.isArray(pattern)) {
           return pattern.every((p) => p.test(str));
@@ -66,9 +67,10 @@ function startCLI(args, flags = [], spawnOpts = {}, opts = { randomPort: true })
 
       return new Promise((resolve, reject) => {
         function checkOutput() {
-          if (checkPattern(getOutput())) {
+          const output = getOutput().slice(offset);
+          if (checkPattern(output)) {
             tearDown();
-            resolve();
+            resolve(output);
           }
         }
 
@@ -89,12 +91,12 @@ function startCLI(args, flags = [], spawnOpts = {}, opts = { randomPort: true })
         }
 
         // Capture stack trace here to show where waitFor was called from when it times out.
-        const timeoutErr = new Error(`Timeout (${TIMEOUT}) while waiting for ${pattern}`);
+        const timeoutErr = new Error(`Timeout (${timeout}) while waiting for ${pattern}`);
         const timer = setTimeout(() => {
           tearDown();
           timeoutErr.output = this.output;
           reject(timeoutErr);
-        }, TIMEOUT);
+        }, timeout);
 
         function tearDown() {
           clearTimeout(timer);
@@ -108,16 +110,44 @@ function startCLI(args, flags = [], spawnOpts = {}, opts = { randomPort: true })
       });
     },
 
-    waitForPrompt() {
-      return this.waitFor(/>\s+$/);
+    async waitForPaused() {
+      const deadline = Date.now() + TIMEOUT;
+
+      function getRemainingTime() {
+        return deadline - Date.now();
+      }
+
+      await this.waitForPrompt(getRemainingTime());
+
+      while (getRemainingTime() > 0) {
+        const offset = this.output.length;
+        this.writeLine('list()', false);
+        const output = await this.waitFor(/>\s+$/, offset, getRemainingTime());
+
+        if (!NOT_PAUSED_MESSAGE.test(output)) {
+          return;
+        }
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(100, getRemainingTime())));
+      }
+
+      const timeoutErr =
+        new Error(`Timeout (${TIMEOUT}) while waiting for a debugger pause state`);
+      timeoutErr.output = this.output;
+      throw timeoutErr;
+    },
+
+    waitForPrompt(timeout = TIMEOUT) {
+      return this.waitFor(/>\s+$/, 0, timeout);
     },
 
     async waitForInitialBreak() {
-      await this.waitFor(/break (?:on start )?in/i);
+      await this.waitForPaused();
 
       if (isPreBreak(this.output)) {
         await this.command('next', false);
-        return this.waitFor(/break in/);
+        await this.waitForPaused();
       }
     },
 
