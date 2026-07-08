@@ -4,7 +4,7 @@
 // fs.statSync / fs.lstatSync / fs.statfsSync dispatch through the VFS layer,
 // including the `throwIfNoEntry: false` option.
 
-require('../common');
+const common = require('../common');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -49,6 +49,7 @@ assert.strictEqual(
 {
   const s = fs.statfsSync(path.join(mountPoint, 'src/hello.txt'));
   assert.strictEqual(typeof s.bsize, 'number');
+  assert.strictEqual(typeof s.frsize, 'number');
 }
 
 // statfsSync with bigint:true returns BigInt fields
@@ -56,6 +57,22 @@ assert.strictEqual(
   const s = fs.statfsSync(path.join(mountPoint, 'src/hello.txt'),
                           { bigint: true });
   assert.strictEqual(typeof s.bsize, 'bigint');
+  assert.strictEqual(typeof s.frsize, 'bigint');
 }
+
+// statfsSync on missing path throws ENOENT
+assert.throws(() => fs.statfsSync(path.join(mountPoint, 'missing')),
+              {
+                code: 'ENOENT',
+                syscall: 'statfs',
+                path: path.join(mountPoint, 'missing'),
+              });
+
+// statfs on missing path reports ENOENT through the callback
+fs.statfs(path.join(mountPoint, 'missing'), common.mustCall((err) => {
+  assert.strictEqual(err.code, 'ENOENT');
+  assert.strictEqual(err.syscall, 'statfs');
+  assert.strictEqual(err.path, path.join(mountPoint, 'missing'));
+}));
 
 myVfs.unmount();
