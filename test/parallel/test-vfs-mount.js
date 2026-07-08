@@ -120,6 +120,31 @@ function createMountedVfs() {
     }));
 }
 
+// Test: fs.promises.open returns a public FileHandle for mounted VFS paths
+{
+  const { myVfs, mountPoint } = createMountedVfs();
+  (async () => {
+    const handle = await fs.promises.open(path.join(mountPoint, 'src/hello.txt'), 'r');
+    assert.strictEqual(handle.constructor.name, 'FileHandle');
+    assert.strictEqual(typeof handle.fd, 'number');
+    assert.notStrictEqual(handle.fd & 0x40000000, 0);
+    assert.strictEqual(typeof handle.readFile, 'function');
+    assert.strictEqual(typeof handle.createReadStream, 'function');
+    assert.strictEqual(await handle.readFile('utf8'), 'hello world');
+    await handle.close();
+
+    const streamHandle = await fs.promises.open(path.join(mountPoint, 'src/hello.txt'), 'r');
+    const chunks = [];
+    for await (const chunk of streamHandle.createReadStream()) {
+      chunks.push(chunk);
+    }
+    assert.strictEqual(Buffer.concat(chunks).toString(), 'hello world');
+
+    await streamHandle.close();
+    myVfs.unmount();
+  })().then(common.mustCall());
+}
+
 // Test: streams
 {
   const { myVfs, mountPoint } = createMountedVfs();
