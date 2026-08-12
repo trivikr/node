@@ -247,13 +247,14 @@ extern "C" uintptr_t node_ffi_fast_buffer_data(v8::Local<v8::Value> value,
   // invalid pointer value.
   constexpr uintptr_t kInvalidBuffer = std::numeric_limits<uintptr_t>::max();
 
-  // Accept only memory-backed JS values in the native helper. Other pointer
-  // conversions, including strings, stay in the JS wrapper so their temporary
-  // lifetime is explicit.
+  // Accept only the memory-backed JS values supported by ToFFIArgument in the
+  // native helper. Other pointer conversions, including strings and direct
+  // SharedArrayBuffers, stay in the JS wrapper so validation and temporary
+  // lifetimes match the generic path.
   if (value->IsArrayBufferView()) {
     return PointerFromValue(value);
   }
-  if (value->IsArrayBuffer() || value->IsSharedArrayBuffer()) {
+  if (value->IsArrayBuffer()) {
     return PointerFromValue(value);
   }
 
