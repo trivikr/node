@@ -1083,7 +1083,7 @@ bool DatabaseSync::Open() {
   }
 
   trace_channel_ = diagnostics_channel::Channel::Get(env(), "sqlite.db.query");
-  if (trace_channel_ != nullptr && trace_channel_->HasSubscribers()) {
+  if (trace_channel_ && trace_channel_->HasSubscribers()) {
     sqlite3_trace_v2(connection_, SQLITE_TRACE_PROFILE, TraceCallback, this);
   }
 
@@ -1093,7 +1093,7 @@ bool DatabaseSync::Open() {
 
 void DatabaseSync::EnableTracing() {
   if (!IsOpen()) return;
-  if (trace_channel_ == nullptr) {
+  if (!trace_channel_) {
     trace_channel_ =
         diagnostics_channel::Channel::Get(env(), "sqlite.db.query");
   }
@@ -2729,7 +2729,7 @@ int DatabaseSync::TraceCallback(unsigned int type,
   DatabaseSync* db = static_cast<DatabaseSync*>(user_data);
   Environment* env = db->env();
 
-  diagnostics_channel::Channel* ch = db->trace_channel_;
+  diagnostics_channel::Channel* ch = db->trace_channel_.get();
   if (ch == nullptr || !ch->HasSubscribers()) {
     return 0;
   }
