@@ -2730,9 +2730,12 @@ int DatabaseSync::TraceCallback(unsigned int type,
   Environment* env = db->env();
 
   diagnostics_channel::Channel* ch = db->trace_channel_.get();
-  if (ch == nullptr || !ch->HasSubscribers()) {
+  if (ch == nullptr || !ch->HasSubscribers() ||
+      db->AreTraceEventsSuppressed()) {
     return 0;
   }
+
+  CallbackDepthGuard callback_guard(db);
 
   Isolate* isolate = env->isolate();
   HandleScope handle_scope(isolate);
@@ -2804,6 +2807,10 @@ void StatementSync::Close() {
 }
 
 void StatementSync::Finalize() {
+  // sqlite3_finalize() emits SQLITE_TRACE_PROFILE for an unfinished
+  // statement. Finalization can happen from a V8 weak callback, where calling
+  // into JavaScript is not allowed, so do not publish that event.
+  TraceEventSuppressionGuard trace_guard(db_.get());
   statement_.reset();
   InvalidateColumnNameCache();
 }
@@ -2823,12 +2830,21 @@ void StatementSync::Close(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   THROW_AND_RETURN_ON_BAD_STATE(
       env, stmt->IsFinalized(), "statement has been finalized");
+  THROW_AND_RETURN_ON_BAD_STATE(env,
+                                stmt->db_->IsInCallback(),
+                                "statement cannot be closed while in a "
+                                "callback");
   stmt->Close();
 }
 
 void StatementSync::Dispose(const FunctionCallbackInfo<Value>& args) {
   StatementSync* stmt;
   ASSIGN_OR_RETURN_UNWRAP(&stmt, args.This());
+  Environment* env = Environment::GetCurrent(args);
+  THROW_AND_RETURN_ON_BAD_STATE(env,
+                                stmt->db_->IsInCallback(),
+                                "statement cannot be closed while in a "
+                                "callback");
   stmt->Close();
 }
 

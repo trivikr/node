@@ -1,7 +1,10 @@
+// Flags: --expose-gc
 'use strict';
 
-const { skipIfSQLiteMissing } = require('../common');
+const common = require('../common');
+const { skipIfSQLiteMissing } = common;
 skipIfSQLiteMissing();
+const { gcUntil } = require('../common/gc');
 
 const assert = require('node:assert');
 const dc = require('node:diagnostics_channel');
@@ -180,5 +183,63 @@ suite('sqlite.db.query diagnostics channel', () => {
 
     assert.strictEqual(calls.length, 1);
     assert.ok(calls[0].duration >= 0);
+  });
+
+  it('does not publish while an unfinished statement is finalized by GC',
+     async (t) => {
+       let dbRef;
+       const handler = common.mustNotCall(
+         'finalizing an unfinished statement must not publish');
+
+       t.after(() => dc.unsubscribe('sqlite.db.query', handler));
+
+       (() => {
+         const db = new DatabaseSync(':memory:');
+         db.exec('CREATE TABLE t (x INTEGER)');
+         db.exec('INSERT INTO t VALUES (1), (2)');
+
+         dc.subscribe('sqlite.db.query', handler);
+
+         const stmt = db.prepare('SELECT x FROM t');
+         const iterator = stmt.iterate();
+         const result = iterator.next();
+         assert.strictEqual(result.done, false);
+         assert.strictEqual(result.value.x, 1);
+         dbRef = new WeakRef(db);
+       })();
+
+       await gcUntil('SQLite database should be collected',
+                     () => dbRef.deref() === undefined);
+     });
+
+  it('prevents resources from closing inside a subscriber', (t) => {
+    let calls = 0;
+    using db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE t (x INTEGER)');
+    using stmt = db.prepare('INSERT INTO t VALUES (?)');
+
+    const handler = common.mustCall(() => {
+      calls++;
+      assert.throws(() => db.close(), {
+        code: 'ERR_INVALID_STATE',
+        message: 'database cannot be closed while in a callback',
+      });
+      assert.throws(() => stmt.close(), {
+        code: 'ERR_INVALID_STATE',
+        message: 'statement cannot be closed while in a callback',
+      });
+      assert.throws(() => stmt[Symbol.dispose](), {
+        code: 'ERR_INVALID_STATE',
+        message: 'statement cannot be closed while in a callback',
+      });
+    });
+    dc.subscribe('sqlite.db.query', handler);
+    t.after(() => dc.unsubscribe('sqlite.db.query', handler));
+
+    assert.deepStrictEqual(stmt.run(1), {
+      changes: 1,
+      lastInsertRowid: 1,
+    });
+    assert.strictEqual(calls, 1);
   });
 });
