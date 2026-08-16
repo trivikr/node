@@ -135,6 +135,48 @@ async function testStrictBackpressureOverflow() {
   });
 }
 
+async function testEndRejectsPendingWrite() {
+  const kChunk = new Uint8Array(16384);
+  const { writer, broadcast: bc } = broadcast({
+    budget: 16384,
+    backpressure: 'unbounded',
+  });
+  const consumer = bc.push();
+
+  await writer.write(kChunk);
+  const pending = writer.write('blocked');
+  const rejected = assert.rejects(pending, {
+    name: 'TypeError',
+    code: 'ERR_INVALID_STATE',
+    message: 'Invalid state: Writer is closed',
+  });
+
+  assert.strictEqual(await writer.end(), 16384);
+  await rejected;
+  assert.strictEqual((await text(consumer)).length, 16384);
+}
+
+async function testEndSyncRejectsPendingWrite() {
+  const kChunk = new Uint8Array(16384);
+  const { writer, broadcast: bc } = broadcast({
+    budget: 16384,
+    backpressure: 'unbounded',
+  });
+  const consumer = bc.push();
+
+  await writer.write(kChunk);
+  const pending = writer.write('blocked');
+  const rejected = assert.rejects(pending, {
+    name: 'TypeError',
+    code: 'ERR_INVALID_STATE',
+    message: 'Invalid state: Writer is closed',
+  });
+
+  assert.strictEqual(writer.endSync(), 16384);
+  await rejected;
+  assert.strictEqual((await text(consumer)).length, 16384);
+}
+
 // Writev async path
 async function testWritevAsync() {
   const { writer, broadcast: bc } = broadcast({ budget: 16384 });
@@ -184,6 +226,8 @@ Promise.all([
   testBlockBackpressure(),
   testBlockBackpressureContent(),
   testStrictBackpressureOverflow(),
+  testEndRejectsPendingWrite(),
+  testEndSyncRejectsPendingWrite(),
   testWritevAsync(),
   testZeroByteWrites(),
   testEndSyncReturnValue(),
