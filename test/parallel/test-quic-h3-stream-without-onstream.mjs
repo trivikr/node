@@ -10,6 +10,10 @@
 // A session with no stream consumers at all still destroys incoming
 // streams (and emits a warning), so unconsumed streams cannot
 // accumulate and hold flow control credit.
+//
+// The set of session-level stream callbacks is read back from the API, so a
+// newly added callback fails this test until it is classified below as a
+// consumer or a non-consumer.
 
 import { hasQuic, skip, mustCall, mustNotCall } from '../common/index.mjs';
 import assert from 'node:assert';
@@ -19,7 +23,7 @@ if (!hasQuic) {
   skip('QUIC is not enabled');
 }
 
-const { listen, connect } = await import('node:quic');
+const { listen, connect, QuicStream } = await import('node:quic');
 const { createPrivateKey } = await import('node:crypto');
 const { text } = await import('stream/iter');
 
@@ -34,6 +38,78 @@ const kWarning =
   'A new stream was received but no stream consumer callback was provided';
 function failOnConsumerWarning(warning) {
   assert.notStrictEqual(warning.message, kWarning);
+}
+
+// Session-level stream callbacks that count as a consumer: the negotiated
+// application is guaranteed to hand every incoming stream to these, so a
+// stream survives with only one of them registered, and each needs a case
+// below. The rest cannot be relied on to expose an incoming request stream:
+// `oninfo` is 1xx-only, `ontrailers` depends on the peer sending trailers,
+// and `onwanttrailers` is an outbound notification.
+const kConsumerCallbacks = ['onheaders'];
+const kNonConsumerCallbacks = ['oninfo', 'ontrailers', 'onwanttrailers'];
+
+// --- Every session-level stream callback is classified above ---
+// The callbacks the implementation applies to an incoming stream are read
+// back from the API: every `on*` accessor of QuicStream is offered to
+// listen(), and the ones that arrive set on the received stream are the
+// session-level stream callbacks. A newly added callback therefore fails
+// here until it is classified.
+//
+// This assumes a session-level stream callback is exposed as an accessor on
+// QuicStream.prototype, which holds because the callbacks are stored on a
+// private field and [kNewStream] applies the defaults by assigning
+// stream[name]. One added as a plain own property of the instance instead
+// would not be discovered here.
+{
+  const candidates = Object.getOwnPropertyNames(QuicStream.prototype)
+    .filter((name) => name.startsWith('on'));
+  const probes = { __proto__: null };
+  for (const name of candidates) probes[name] = () => {};
+
+  const applied = Promise.withResolvers();
+  const serverEndpoint = await listen(mustCall((session) => {
+    session.onerror = () => {};
+  }), {
+    sni: { '*': { keys: [key], certs: [cert] } },
+    ...probes,
+    // With onstream set the stream is kept whatever the classification is,
+    // so this session only observes the applied defaults.
+    onstream: mustCall((stream) => {
+      applied.resolve(
+        candidates.filter((name) => typeof stream[name] === 'function'));
+    }),
+  });
+
+  const clientSession = await connect(serverEndpoint.address, {
+    servername: 'localhost',
+    verifyPeer: 'manual',
+  });
+  clientSession.onerror = () => {};
+  await clientSession.opened;
+  await clientSession.createBidirectionalStream({
+    headers: {
+      ':method': 'GET',
+      ':path': '/test',
+      ':scheme': 'https',
+      ':authority': 'localhost',
+    },
+  });
+
+  assert.deepStrictEqual(
+    (await applied.promise).sort(),
+    [...kConsumerCallbacks, ...kNonConsumerCallbacks].sort(),
+    'The session-level stream callbacks changed. Classify each one: a ' +
+    'callback the application is guaranteed to hand every incoming stream ' +
+    'to belongs in kConsumerCallbacks, must be accepted by ' +
+    'QuicSession#hasStreamConsumer, and needs a case asserting a stream ' +
+    'survives with only it registered. Anything else belongs in ' +
+    'kNonConsumerCallbacks, which asserts the stream is destroyed with the ' +
+    'consumer warning.');
+
+  clientSession.destroy();
+  await clientSession.closed;
+  await serverEndpoint.destroy();
 }
 
 // --- An h3 request completes with only session-level stream callbacks ---
@@ -93,7 +169,7 @@ function failOnConsumerWarning(warning) {
 // Without onstream or onheaders, the application has no reliable way to
 // obtain the incoming request stream, so it must still be destroyed with the
 // consumer warning.
-for (const callbackName of ['oninfo', 'ontrailers', 'onwanttrailers']) {
+for (const callbackName of kNonConsumerCallbacks) {
   let consumerWarnings = 0;
   function onWarning(warning) {
     if (warning.message === kWarning) consumerWarnings++;
