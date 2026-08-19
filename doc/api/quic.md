@@ -306,10 +306,9 @@ separate APIs for creating each kind:
 [`session.createBidirectionalStream()`][] and
 [`session.createUnidirectionalStream()`][]. Streams initiated by a remote
 peer are delivered via the [`session.onstream`][] callback. When the
-negotiated application protocol supports the stream-level callbacks (e.g.
-HTTP/3) and any of them are configured, incoming streams can instead be
-consumed entirely through those callbacks (such as `onheaders`) and
-registering `onstream` is optional.
+negotiated application protocol supports stream-level callbacks (e.g. HTTP/3)
+and `onheaders` is configured, incoming streams can instead be consumed
+entirely through that callback and registering `onstream` is optional.
 
 There are two ways to write data to a stream:
 
@@ -1117,11 +1116,10 @@ added: v23.8.0
 The callback to invoke when a new stream is initiated by a remote peer. Read/write.
 
 If no `onstream` callback is set and the stream has no other consumer, an
-incoming stream is destroyed on arrival and a warning is emitted. Stream-level
-callbacks (such as `onheaders`) count as a consumer when the negotiated
-application protocol supports them (e.g. HTTP/3), so an HTTP/3 server that
-handles requests entirely through those callbacks does not need to set
-`onstream`.
+incoming stream is destroyed on arrival and a warning is emitted. The
+stream-level `onheaders` callback counts as a consumer when the negotiated
+application protocol supports it (e.g. HTTP/3), so an HTTP/3 server that handles
+requests entirely through that callback does not need to set `onstream`.
 
 ### `session.ondatagram`
 
