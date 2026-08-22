@@ -146,6 +146,27 @@ async function doWriteAlreadyErroredStream() {
   }
 }
 
+async function doWriteAlreadyErroredStreamWithAbortedSignal() {
+  const error = new Error('already errored writeFile stream with aborted signal');
+  const stream = createErroredStream(error);
+  const controller = new AbortController();
+  controller.abort();
+  const uncaughtException = common.mustNotCall(
+    'already errored streams should not emit an uncaught exception');
+
+  process.once('uncaughtException', uncaughtException);
+  try {
+    await assert.rejects(
+      fsPromises.writeFile(errorDest, stream, { signal: controller.signal }),
+      { code: 'ABORT_ERR' }
+    );
+    await waitForNextTick();
+    assert.strictEqual(stream.listenerCount('error'), 0);
+  } finally {
+    process.removeListener('uncaughtException', uncaughtException);
+  }
+}
+
 async function doWriteStreamOpenError() {
   const stream = Readable.from(['a']);
 
@@ -252,6 +273,7 @@ async function doWriteTypedArrays() {
   await doWriteStream();
   await doWriteStreamError();
   await doWriteAlreadyErroredStream();
+  await doWriteAlreadyErroredStreamWithAbortedSignal();
   await doWriteStreamOpenError();
   await doWriteStreamWithCancel();
   await doWriteIterable();
