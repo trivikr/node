@@ -204,3 +204,22 @@ const { AsyncLocalStorage } = require('node:async_hooks');
   scope[Symbol.dispose]();
   assert.strictEqual(store.getStore(), undefined);
 }
+
+// Test RunStoresScope unwinds entered stores if a later store fails to enter
+{
+  const channel = dc.channel('test-run-stores-scope-partial-acquisition');
+  const enteredStore = new AsyncLocalStorage();
+  const expected = new Error('scope acquisition failed');
+
+  class FailingStore extends AsyncLocalStorage {
+    withScope() {
+      throw expected;
+    }
+  }
+
+  channel.bindStore(enteredStore);
+  channel.bindStore(new FailingStore());
+
+  assert.throws(() => channel.withStoreScope('entered'), expected);
+  assert.strictEqual(enteredStore.getStore(), undefined);
+}
