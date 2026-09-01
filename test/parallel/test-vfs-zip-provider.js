@@ -83,6 +83,14 @@ async function buildArchive(entries, comment) {
     assert.strictEqual(await archiveVfs.promises.readFile('/new.txt', 'utf8'), 'brand new');
     assert.strictEqual(zip.has('new.txt'), true);
 
+    // Creating an entry requires a directory-valued parent.
+    await assert.rejects(archiveVfs.promises.writeFile('/missing/file.txt', 'x'), { code: 'ENOENT' });
+    await assert.rejects(archiveVfs.promises.mkdir('/missing/dir'), { code: 'ENOENT' });
+    await assert.rejects(archiveVfs.promises.writeFile('/a.txt/child', 'x'), { code: 'ENOTDIR' });
+    await assert.rejects(archiveVfs.promises.mkdir('/a.txt/child'), { code: 'ENOTDIR' });
+    await archiveVfs.promises.mkdir('/recursive/dir', { recursive: true });
+    assert.strictEqual((await archiveVfs.promises.stat('/recursive/dir')).isDirectory(), true);
+
     // Overwriting an existing file.
     await archiveVfs.promises.writeFile('/a.txt', 'overwritten');
     assert.strictEqual(await archiveVfs.promises.readFile('/a.txt', 'utf8'), 'overwritten');
@@ -202,6 +210,14 @@ async function buildArchive(entries, comment) {
     assert.strictEqual(archiveVfs.readFileSync('/new.txt', 'utf8'), 'brand new');
     archiveVfs.appendFileSync('/new.txt', '!');
     assert.strictEqual(archiveVfs.readFileSync('/new.txt', 'utf8'), 'brand new!');
+
+    // Creating an entry requires a directory-valued parent.
+    assert.throws(() => archiveVfs.writeFileSync('/missing/file.txt', 'x'), { code: 'ENOENT' });
+    assert.throws(() => archiveVfs.mkdirSync('/missing/dir'), { code: 'ENOENT' });
+    assert.throws(() => archiveVfs.writeFileSync('/a.txt/child', 'x'), { code: 'ENOTDIR' });
+    assert.throws(() => archiveVfs.mkdirSync('/a.txt/child'), { code: 'ENOTDIR' });
+    archiveVfs.mkdirSync('/recursive/dir', { recursive: true });
+    assert.strictEqual(archiveVfs.statSync('/recursive/dir').isDirectory(), true);
 
     // mkdir/rmdir.
     archiveVfs.mkdirSync('/newdir');
