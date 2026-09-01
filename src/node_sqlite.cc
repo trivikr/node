@@ -2525,6 +2525,11 @@ void Backup(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
+  // Creating the Promise runs async_hooks init callbacks, which is one more
+  // opportunity for user JavaScript to close the database. Nothing below this
+  // point runs JavaScript before sqlite3_backup_init() uses the connection.
+  THROW_AND_RETURN_ON_BAD_STATE(env, !db->IsOpen(), "database is not open");
+
   args.GetReturnValue().Set(resolver->GetPromise());
   BackupJob* job = new BackupJob(env,
                                  db,

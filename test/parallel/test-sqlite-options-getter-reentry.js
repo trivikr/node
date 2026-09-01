@@ -2,6 +2,7 @@
 const { skipIfSQLiteMissing } = require('../common');
 skipIfSQLiteMissing();
 const tmpdir = require('../common/tmpdir');
+const { spawnSync } = require('node:child_process');
 const { join } = require('node:path');
 const { backup, DatabaseSync } = require('node:sqlite');
 const { suite, test } = require('node:test');
@@ -140,6 +141,30 @@ suite('closing the database from an options getter', () => {
       });
     }, invalidState);
   });
+});
+
+// An options getter is not the only place user JavaScript runs during
+// backup(): the state check happens before the returned Promise is created,
+// and creating it runs async_hooks init callbacks. Isolated in a child process
+// because an unvalidated connection reaches sqlite3_backup_init() as a null
+// pointer and takes the process down instead of throwing.
+test('backup() throws when a Promise init hook closes the database', (t) => {
+  const child = spawnSync(process.execPath, ['-e', `
+    const assert = require('node:assert');
+    const { createHook } = require('node:async_hooks');
+    const { backup, DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    createHook({ init(asyncId, type) {
+      if (type === 'PROMISE' && db.isOpen) db.close();
+    } }).enable();
+    // Nothing before this point may create a Promise, or the close would
+    // happen too early and only exercise the check backup() already had.
+    assert.strictEqual(db.isOpen, true);
+    assert.throws(() => backup(db, ':memory:'), { code: 'ERR_INVALID_STATE' });
+  `], { encoding: 'utf8' });
+
+  t.assert.strictEqual(child.signal, null, child.stderr);
+  t.assert.strictEqual(child.status, 0, child.stderr);
 });
 
 // The state check runs before the options bag is read, so a call that is
