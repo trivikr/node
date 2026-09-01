@@ -79,6 +79,13 @@ function makeFileEntry(prototypeFrom, contentProvider) {
 
   const myVfs = vfs.create(provider);
 
+  // Rename must populate a lazy destination before deciding whether it is
+  // empty, otherwise its deferred entries would be discarded.
+  myVfs.mkdirSync('/src');
+  assert.throws(() => myVfs.renameSync('/src', '/lazy'),
+                { code: 'ENOTEMPTY' });
+  assert.strictEqual(myVfs.existsSync('/src'), true);
+
   // Reading the lazy directory triggers populate
   const entries = myVfs.readdirSync('/lazy');
   assert.deepStrictEqual(entries.sort(),
