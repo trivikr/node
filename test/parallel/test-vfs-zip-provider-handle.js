@@ -443,6 +443,32 @@ function buildArchiveSync(entries, comment) {
   await zip.close();
 })().then(common.mustCall());
 
+// --- operations on closed handles fail with EBADF -------------------------
+(async () => {
+  const archive = await buildArchive([await zlib.ZipEntry.create('a.txt', Buffer.from('x'))]);
+  const provider = new vfs.ZipProvider(new zlib.ZipBuffer(archive));
+
+  const handle = await provider.open('/a.txt', 'r+');
+  await handle.close();
+  await assert.rejects(handle.read(Buffer.alloc(1), 0, 1, 0), { code: 'EBADF' });
+  await assert.rejects(handle.write(Buffer.from('x'), 0, 1, 0), { code: 'EBADF' });
+  await assert.rejects(handle.readFile(), { code: 'EBADF' });
+  await assert.rejects(handle.writeFile('x'), { code: 'EBADF' });
+  await assert.rejects(handle.stat(), { code: 'EBADF' });
+  await assert.rejects(handle.truncate(), { code: 'EBADF' });
+  await handle.close(); // Closing an already-closed handle is a no-op.
+
+  const syncHandle = provider.openSync('/a.txt', 'r+');
+  syncHandle.closeSync();
+  assert.throws(() => syncHandle.readSync(Buffer.alloc(1), 0, 1, 0), { code: 'EBADF' });
+  assert.throws(() => syncHandle.writeSync(Buffer.from('x'), 0, 1, 0), { code: 'EBADF' });
+  assert.throws(() => syncHandle.readFileSync(), { code: 'EBADF' });
+  assert.throws(() => syncHandle.writeFileSync('x'), { code: 'EBADF' });
+  assert.throws(() => syncHandle.statSync(), { code: 'EBADF' });
+  assert.throws(() => syncHandle.truncateSync(), { code: 'EBADF' });
+  syncHandle.closeSync();
+})().then(common.mustCall());
+
 // --- numeric open flags are normalized like node:fs (O_* constants) --------
 (async () => {
   const { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = fs.constants;
