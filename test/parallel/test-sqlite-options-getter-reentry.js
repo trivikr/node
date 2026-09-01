@@ -326,3 +326,68 @@ suite('non-integer callback length', () => {
     t.assert.strictEqual(db.prepare('SELECT plus(1, 2) AS v').get().v, 3);
   });
 });
+
+// A negative or oversized length passes the integer check above but is still
+// unusable as an argument count: SQLite reads -1 as "accepts any number of
+// arguments" and rejects anything past its own argument limit.
+suite('out-of-range callback length', () => {
+  test('function() does not become variadic when length is -1', (t) => {
+    const db = new DatabaseSync(':memory:');
+    const fn = (...args) => args.length;
+    Object.defineProperty(fn, 'length', { configurable: true, value: -1 });
+
+    // Rejecting the length and letting SQLite enforce the arity are both
+    // acceptable, but a varargs: false function must not answer a call with a
+    // different argument count.
+    t.assert.throws(() => {
+      db.function('fn', { varargs: false }, fn);
+      db.prepare('SELECT fn(1, 2, 3) AS v').get();
+    }, (err) => err.code === 'ERR_OUT_OF_RANGE' ||
+                /wrong number of arguments/.test(err.message));
+  });
+
+  test('function() reports a real error for an oversized length', (t) => {
+    const db = new DatabaseSync(':memory:');
+    const fn = (...args) => args.length;
+    Object.defineProperty(fn, 'length', {
+      configurable: true,
+      value: 2147483647,
+    });
+    t.assert.throws(() => {
+      db.function('fn', { varargs: false }, fn);
+    }, (err) => !/not an error/.test(err.message));
+  });
+
+  test('a length at the argument limit is still accepted', (t) => {
+    const db = new DatabaseSync(':memory:');
+    const fn = (...args) => args.length;
+    Object.defineProperty(fn, 'length', {
+      configurable: true,
+      value: db.limits.functionArg,
+    });
+    db.function('fn', { varargs: false }, fn);
+
+    // One argument of an aggregate's step is the accumulator, so its length
+    // may exceed the limit by exactly one.
+    const step = (acc, next) => acc;
+    Object.defineProperty(step, 'length', {
+      configurable: true,
+      value: db.limits.functionArg + 1,
+    });
+    db.aggregate('agg', { start: 0, step, result: (acc) => acc });
+  });
+
+  test('aggregate() reports a real error for an unusable step length', (t) => {
+    // The argument count is computed as length - 1, which overflows at
+    // INT32_MIN and leaves SQLite with no error to report, so the failure
+    // surfaces as the meaningless message "not an error".
+    for (const value of [-2147483648, 2147483647]) {
+      const db = new DatabaseSync(':memory:');
+      const step = (acc, next) => acc;
+      Object.defineProperty(step, 'length', { configurable: true, value });
+      t.assert.throws(() => {
+        db.aggregate('agg', { start: 0, step, result: (acc) => acc });
+      }, (err) => !/not an error/.test(err.message), `length=${value}`);
+    }
+  });
+});

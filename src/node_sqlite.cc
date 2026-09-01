@@ -1938,12 +1938,36 @@ void DatabaseSync::CustomFunction(const FunctionCallbackInfo<Value>& args) {
     }
 
     argc = js_len.As<Int32>()->Value();
+
+    // SQLite reads a negative argument count as "accepts any number of
+    // arguments", which would silently contradict varargs: false.
+    if (argc < 0) {
+      THROW_ERR_OUT_OF_RANGE(env->isolate(),
+                             "The \"function.length\" property must be a "
+                             "non-negative integer.");
+      return;
+    }
   }
 
   // Reading the options bag and "function.length" above can run user
   // JavaScript through a property getter, which may have closed the database
   // since it was checked.
   THROW_AND_RETURN_ON_BAD_STATE(env, !db->IsOpen(), "database is not open");
+
+  // Checked below the state check because sqlite3_limit() needs a live
+  // connection. Beyond this limit sqlite3_create_function_v2() fails without
+  // recording an error, so the reported message would be "not an error".
+  if (!varargs) {
+    int max_argc =
+        sqlite3_limit(db->connection_.get(), SQLITE_LIMIT_FUNCTION_ARG, -1);
+    if (argc > max_argc) {
+      THROW_ERR_OUT_OF_RANGE(env->isolate(),
+                             "The \"function.length\" property must not "
+                             "exceed %d.",
+                             max_argc);
+      return;
+    }
+  }
 
   UserDefinedFunction* user_data = new UserDefinedFunction(
       env, fn, BaseObjectWeakPtr<DatabaseSync>(db), use_bigint_args);
@@ -2261,6 +2285,7 @@ void DatabaseSync::AggregateFunction(const FunctionCallbackInfo<Value>& args) {
   Local<Function> resultFunction =
       result_v->IsFunction() ? result_v.As<Function>() : Local<Function>();
   int argc = -1;
+  int64_t wide_argc = -1;
   if (!varargs) {
     Local<Value> js_len;
     if (!stepFunction->Get(env->context(), env->length_string())
@@ -2275,8 +2300,16 @@ void DatabaseSync::AggregateFunction(const FunctionCallbackInfo<Value>& args) {
       return;
     }
 
-    // Subtract 1 because the first argument is the aggregate value.
-    argc = js_len.As<Int32>()->Value() - 1;
+    if (js_len.As<Int32>()->Value() < 0) {
+      THROW_ERR_OUT_OF_RANGE(env->isolate(),
+                             "The \"options.step.length\" property must be a "
+                             "non-negative integer.");
+      return;
+    }
+
+    // Subtract 1 because the first argument is the aggregate value. Widened to
+    // 64 bits so that subtracting from INT32_MIN cannot overflow.
+    wide_argc = static_cast<int64_t>(js_len.As<Int32>()->Value()) - 1;
     if (!inverseFunc.IsEmpty()) {
       if (!inverseFunc->Get(env->context(), env->length_string())
                .ToLocal(&js_len)) {
@@ -2289,15 +2322,41 @@ void DatabaseSync::AggregateFunction(const FunctionCallbackInfo<Value>& args) {
             "The \"options.inverse.length\" property must be an integer.");
         return;
       }
+
+      if (js_len.As<Int32>()->Value() < 0) {
+        THROW_ERR_OUT_OF_RANGE(env->isolate(),
+                               "The \"options.inverse.length\" property must "
+                               "be a non-negative integer.");
+        return;
+      }
     }
 
-    argc = std::max({argc, js_len.As<Int32>()->Value() - 1, 0});
+    wide_argc = std::max<int64_t>(
+        {wide_argc, static_cast<int64_t>(js_len.As<Int32>()->Value()) - 1, 0});
   }
 
   // Reading the options bag and the step/inverse "length" properties above can
   // run user JavaScript through a property getter, which may have closed the
   // database since it was checked.
   THROW_AND_RETURN_ON_BAD_STATE(env, !db->IsOpen(), "database is not open");
+
+  // Checked below the state check because sqlite3_limit() needs a live
+  // connection. Beyond this limit sqlite3_create_window_function() fails
+  // without recording an error, so the reported message would be "not an
+  // error".
+  if (!varargs) {
+    int max_argc =
+        sqlite3_limit(db->connection_.get(), SQLITE_LIMIT_FUNCTION_ARG, -1);
+    if (wide_argc > max_argc) {
+      THROW_ERR_OUT_OF_RANGE(env->isolate(),
+                             "The aggregate function's argument count must "
+                             "not exceed %d.",
+                             max_argc);
+      return;
+    }
+
+    argc = static_cast<int>(wide_argc);
+  }
 
   int text_rep = SQLITE_UTF8;
   if (direct_only) {
