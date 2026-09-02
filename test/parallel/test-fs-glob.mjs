@@ -720,6 +720,14 @@ test('async glob does not use synchronous path identity calls', () => {
         for await (const entry of fs.promises.glob(pattern, options)) {
           void entry;
         }
+        const excludeOptions = {
+          cwd: ${JSON.stringify(fixtureDir)},
+          exclude: ['A/B'],
+        };
+        await promisify(fs.glob)('a/b', excludeOptions);
+        for await (const entry of fs.promises.glob('a/b', excludeOptions)) {
+          void entry;
+        }
       })().catch((error) => {
         console.error(error);
         process.exitCode = 1;
@@ -984,14 +992,13 @@ describe('glob - seen cache', function() {
   });
 });
 
-// gh-58991: exclude patterns must apply the same case-sensitivity as include
-// patterns. On case-insensitive filesystems include patterns match entries
-// regardless of case, so literal exclude patterns must match that behavior.
-const skipCaseTests = { skip: !common.isWindows && !common.isMacOS };
-describe('glob - exclude case-insensitive consistency', skipCaseTests, function() {
+// gh-58991: literal exclude patterns must use the filesystem's case-sensitivity.
+describe('glob - exclude case consistency', function() {
+  const expected = isCaseSensitiveFileSystem ? ['a/b'] : [];
+
   test('literal exclude ignores case (sync)', () => {
     assert.deepStrictEqual(
-      globSync('a/b', { cwd: fixtureDir, exclude: ['A/B'] }), []);
+      globSync('a/b', { cwd: fixtureDir, exclude: ['A/B'] }), expected);
   });
   test('literal exclude matches differently-cased results (sync)', () => {
     assert.deepStrictEqual(
@@ -1000,7 +1007,7 @@ describe('glob - exclude case-insensitive consistency', skipCaseTests, function(
   test('literal exclude ignores case (async)', async () => {
     const promisified = promisify(glob);
     assert.deepStrictEqual(
-      await promisified('a/b', { cwd: fixtureDir, exclude: ['A/B'] }), []);
+      await promisified('a/b', { cwd: fixtureDir, exclude: ['A/B'] }), expected);
   });
   test('literal exclude ignores case (promise)', async () => {
     const actual = [];
@@ -1008,6 +1015,6 @@ describe('glob - exclude case-insensitive consistency', skipCaseTests, function(
       'a/b', { cwd: fixtureDir, exclude: ['A/B'] })) {
       actual.push(entry);
     }
-    assert.deepStrictEqual(actual, []);
+    assert.deepStrictEqual(actual, expected);
   });
 });
