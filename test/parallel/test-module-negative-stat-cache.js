@@ -3,8 +3,7 @@ require('../common');
 
 // This tests that the CommonJS loader's per-require-tree stat cache caches
 // negative (not-found) results for *speculative* probes: the extension
-// candidates tried by `tryExtensions` and the `node_modules` ancestor
-// directories walked for bare specifiers.
+// candidates tried by `tryExtensions`.
 //
 // A path the user named directly is not negatively cached, so the behaviour of
 // https://github.com/nodejs/node/pull/36642 is preserved: a module that is
@@ -19,6 +18,7 @@ require('../common');
 
 const assert = require('assert');
 const fs = require('fs');
+const { createRequire } = require('module');
 const path = require('path');
 const tmpdir = require('../common/tmpdir');
 
@@ -67,4 +67,27 @@ tmpdir.refresh();
 
   // A negative result for a user-named path must not be cached.
   assert.strictEqual(require(explicit), 'created');
+}
+
+// A missing node_modules lookup directory must not prevent a package created
+// later in the same require tree from being resolved.
+{
+  const parent = tmpdir.resolve('late-package-parent');
+  const packageDir = path.join(parent, 'node_modules', 'late-package');
+  fs.mkdirSync(parent);
+
+  const requireFromParent = createRequire(path.join(parent, 'entry.js'));
+
+  assert.throws(
+    () => requireFromParent('late-package'),
+    { code: 'MODULE_NOT_FOUND' },
+  );
+
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(packageDir, 'index.js'),
+    'module.exports = "created";',
+  );
+
+  assert.strictEqual(requireFromParent('late-package'), 'created');
 }
