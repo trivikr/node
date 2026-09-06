@@ -25,6 +25,7 @@ const mountPoint = layer.mount();
 
 const root = getNormalizedVfsRoot();
 const unowned = [
+  root,
   `${mountPoint}.js`,
   `${mountPoint}.json`,
   `${mountPoint}.node`,
