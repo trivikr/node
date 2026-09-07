@@ -17,6 +17,21 @@ const invalidState = {
 // of the call, so state validated before the options were read can be stale by
 // the time it is used.
 suite('closing the database from an options getter', () => {
+  test('createModule() throws instead of using a closed connection', (t) => {
+    const db = new DatabaseSync(':memory:');
+    t.assert.throws(() => {
+      db.createModule('mod', {
+        get columns() {
+          db.close();
+          return [{ name: 'value', type: 'INTEGER' }];
+        },
+        *rows() {
+          yield [1];
+        },
+      });
+    }, invalidState);
+  });
+
   test('prepare() throws instead of using a closed connection', (t) => {
     const db = new DatabaseSync(':memory:');
     t.assert.throws(() => {

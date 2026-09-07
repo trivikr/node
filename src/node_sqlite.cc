@@ -3020,6 +3020,9 @@ void DatabaseSync::CreateModule(const FunctionCallbackInfo<Value>& args) {
 
   schema_sql += ")";
 
+  // Options and column getters may have closed the database.
+  THROW_AND_RETURN_ON_BAD_STATE(env, !db->IsOpen(), "database is not open");
+
   VirtualTableModule* vtab_mod =
       new VirtualTableModule(env,
                              BaseObjectWeakPtr<DatabaseSync>(db),
