@@ -772,6 +772,7 @@ void LockManager::WakeEnvironment(Environment* target_env) {
 // Remove all held locks and pending requests that belong to an Environment
 // that is being destroyed
 void LockManager::CleanupEnvironment(Environment* env_to_cleanup) {
+  std::unordered_set<Environment*> envs_to_wake;
   Mutex::ScopedLock scoped_lock(mutex_);
 
   // Remove every held lock that belongs to this Environment.
@@ -793,6 +794,13 @@ void LockManager::CleanupEnvironment(Environment* env_to_cleanup) {
     }
   }
 
+  for (const auto& pending_request : pending_queue_) {
+    Environment* pending_env = pending_request->env();
+    if (pending_env != env_to_cleanup) {
+      envs_to_wake.insert(pending_env);
+    }
+  }
+
   // Remove every pending request submitted by this Environment.
   for (auto request_iter = pending_queue_.begin();
        request_iter != pending_queue_.end();) {
@@ -805,6 +813,13 @@ void LockManager::CleanupEnvironment(Environment* env_to_cleanup) {
 
   // Finally, remove it from registered_envs_
   registered_envs_.erase(env_to_cleanup);
+
+  {
+    Mutex::ScopedUnlock unlock(scoped_lock);
+    for (Environment* env : envs_to_wake) {
+      WakeEnvironment(env);
+    }
+  }
 }
 
 // Cleanup hook wrapper

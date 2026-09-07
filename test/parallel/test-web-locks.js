@@ -4,6 +4,7 @@
 const common = require('../common');
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
+const { setTimeout: sleep } = require('node:timers/promises');
 const { Worker } = require('node:worker_threads');
 const { AsyncLocalStorage } = require('node:async_hooks');
 
@@ -220,5 +221,38 @@ describe('Web Locks with worker threads', () => {
     await navigator.locks.request('cleanup-test', common.mustCall(async (lock) => {
       assert.strictEqual(lock.name, 'cleanup-test');
     }));
+  });
+
+  it('should wake a pending lock request when worker owning lock terminates', async () => {
+    const worker = new Worker(`
+      const { parentPort } = require('worker_threads');
+
+      navigator.locks.request('cleanup-held-test', async () => {
+        parentPort.postMessage({ acquired: true });
+        await new Promise(() => {});
+      });
+    `, { eval: true });
+
+    const acquired = await new Promise((resolve) => {
+      worker.once('message', resolve);
+    });
+    assert.strictEqual(acquired.acquired, true);
+
+    const pending = navigator.locks.request(
+      'cleanup-held-test',
+      common.mustCall(async (lock) => {
+        assert.strictEqual(lock.name, 'cleanup-held-test');
+        return 'acquired-after-cleanup';
+      }));
+
+    await worker.terminate();
+
+    const result = await Promise.race([
+      pending,
+      sleep(common.platformTimeout(1000)).then(() => {
+        throw new Error('Timed out waiting for pending lock after worker cleanup');
+      }),
+    ]);
+    assert.strictEqual(result, 'acquired-after-cleanup');
   });
 });
