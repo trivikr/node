@@ -1236,11 +1236,10 @@ int VirtualTableModule::xClose(sqlite3_vtab_cursor* pCursor) {
           env->context(), iterator, 0, nullptr));
     }
 
-    // Re-throw so that an error already pending when SQLite unwound into
-    // xClose still reaches the caller, and so that a throwing `finally` is not
-    // silently discarded.
+    // Re-throw cleanup exceptions directly. SQLite ignores xClose's return
+    // value, so there is no corresponding SQLite error to suppress. Setting
+    // ignore_next_sqlite_error_ here would suppress an unrelated later error.
     if (try_catch.HasCaught() && !try_catch.HasTerminated()) {
-      mod->PropagateJSError();
       try_catch.ReThrow();
     }
   }

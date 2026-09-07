@@ -558,6 +558,36 @@ suite('DatabaseSync.prototype.createModule()', () => {
       }
     });
 
+    test('does not suppress subsequent SQLite errors after cleanup throws', () => {
+      const db = new DatabaseSync(':memory:');
+      const cleanupError = new Error('cleanup failed');
+
+      db.createModule('cleanup_error', {
+        columns: [{ name: 'v', type: 'INTEGER' }],
+        *rows() {
+          try {
+            yield [1];
+            yield [2];
+          } finally {
+            throw cleanupError;
+          }
+        },
+      });
+
+      // LIMIT closes the generator while it is suspended at the first yield.
+      assert.throws(() => {
+        db.prepare('SELECT v FROM cleanup_error LIMIT 1').all();
+      }, (err) => err === cleanupError);
+
+      assert.throws(() => {
+        db.exec('SELECT * FROM missing_table');
+      }, {
+        code: 'ERR_SQLITE_ERROR',
+        message: /no such table: missing_table/,
+      });
+      db.close();
+    });
+
     test('does not run cleanup when the statement is collected', () => {
       // The destructor runs from a GC callback, where JavaScript cannot be
       // executed. An abandoned generator does not run `finally` in JavaScript
