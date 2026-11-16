@@ -6,6 +6,9 @@ common.skipIfInspectorDisabled();
 
 const { describe, it } = require('node:test');
 
+const spawnEnv = { ...process.env, NO_COLOR: '1' };
+delete spawnEnv.FORCE_COLOR;
+
 function generateReport(report) {
   report = ([
     '# start of coverage report',
@@ -16,6 +19,21 @@ function generateReport(report) {
     report = report.replaceAll('/', '\\');
   }
   return report;
+}
+
+function assertIncludes(t, stdout, expected) {
+  t.assert.ok(
+    stdout.includes(expected),
+    `Expected stdout to include:\n${expected}\nActual stdout:\n${stdout}`,
+  );
+}
+
+function spawnNode(args, options = {}) {
+  return common.spawnPromisified(process.execPath, args, {
+    __proto__: null,
+    ...options,
+    env: { __proto__: null, ...spawnEnv, ...options.env },
+  });
 }
 
 const flags = [
@@ -43,12 +61,12 @@ describe('Coverage with source maps', async () => {
       '# --------------------------------------------------------------',
     ]);
 
-    const spawned = await common.spawnPromisified(process.execPath, flags, {
+    const spawned = await spawnNode(flags, {
       cwd: fixtures.path('test-runner', 'coverage')
     });
 
     t.assert.strictEqual(spawned.stderr, '');
-    t.assert.ok(spawned.stdout.includes(report));
+    assertIncludes(t, spawned.stdout, report);
     t.assert.strictEqual(spawned.code, 1);
   });
 
@@ -65,11 +83,11 @@ describe('Coverage with source maps', async () => {
       '# --------------------------------------------------------------',
     ]);
 
-    const spawned = await common.spawnPromisified(process.execPath, flags.slice(1), {
+    const spawned = await spawnNode(flags.slice(1), {
       cwd: fixtures.path('test-runner', 'coverage')
     });
     t.assert.strictEqual(spawned.stderr, '');
-    t.assert.ok(spawned.stdout.includes(report));
+    assertIncludes(t, spawned.stdout, report);
     t.assert.strictEqual(spawned.code, 1);
   });
 
@@ -86,7 +104,7 @@ describe('Coverage with source maps', async () => {
       '# ----------------------------------------------------------',
     ]);
 
-    const spawned = await common.spawnPromisified(process.execPath, [
+    const spawned = await spawnNode([
       ...flags,
       'test.mjs',
     ], {
@@ -94,7 +112,7 @@ describe('Coverage with source maps', async () => {
     });
 
     t.assert.strictEqual(spawned.stderr, '');
-    t.assert.ok(spawned.stdout.includes(report));
+    assertIncludes(t, spawned.stdout, report);
     t.assert.strictEqual(spawned.code, 0);
   });
 
@@ -114,23 +132,23 @@ describe('Coverage with source maps', async () => {
       '# ------------------------------------------------------------------',
     ]);
 
-    const spawned = await common.spawnPromisified(process.execPath, [
+    const spawned = await spawnNode([
       ...flags,
       fixtures.path('test-runner', 'source-maps', 'line-lengths', 'index.js'),
     ]);
     t.assert.strictEqual(spawned.stderr, '');
-    t.assert.ok(spawned.stdout.includes(report));
+    assertIncludes(t, spawned.stdout, report);
     t.assert.strictEqual(spawned.code, 0);
   });
 
   await it('should throw when a source map is missing a source file', async (t) => {
     const file = fixtures.path('test-runner', 'source-maps', 'missing-sources', 'index.js');
     const missing = fixtures.path('test-runner', 'source-maps', 'missing-sources', 'nonexistent.js');
-    const spawned = await common.spawnPromisified(process.execPath, [...flags, file]);
+    const spawned = await spawnNode([...flags, file]);
 
     const error = `Cannot find '${pathToFileURL(missing)}' imported from the source map for '${pathToFileURL(file)}'`;
     t.assert.strictEqual(spawned.stderr, '');
-    t.assert.ok(spawned.stdout.includes(error));
+    assertIncludes(t, spawned.stdout, error);
     t.assert.strictEqual(spawned.code, 1);
   });
 
@@ -139,11 +157,11 @@ describe('Coverage with source maps', async () => {
     [fixtures.path('test-runner', 'source-maps', 'missing-map.js'), 'does not exist'],
   ]) {
     await it(`should throw when a source map ${message}`, async (t) => {
-      const spawned = await common.spawnPromisified(process.execPath, [...flags, file]);
+      const spawned = await spawnNode([...flags, file]);
 
       const error = `The source map for '${pathToFileURL(file)}' does not exist or is corrupt`;
       t.assert.strictEqual(spawned.stderr, '');
-      t.assert.ok(spawned.stdout.includes(error));
+      assertIncludes(t, spawned.stdout, error);
       t.assert.strictEqual(spawned.code, 1);
     });
   }
